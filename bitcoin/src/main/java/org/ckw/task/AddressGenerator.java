@@ -18,7 +18,7 @@ import org.ckw.bean.Account;
 import org.ckw.bean.MultiSignAccount;
 
 import java.math.BigInteger;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
 
@@ -30,6 +30,8 @@ public class AddressGenerator {
 
   private static final MainNetParams MAIN_NET = MainNetParams.get();
   private static final TestNet3Params TEST_NET = TestNet3Params.get();
+  private static final int MAX_EC_KEY_SIZE = 16;
+  private static final int THRESHOLD = 2;
 
   @RequestMapping(value = "/getTimeStamp")
   public long getTimeStamp() {
@@ -40,14 +42,15 @@ public class AddressGenerator {
   public String getECKey() {
     ECKey ecKey = new ECKey();
     log.info(ecKey.toString());
-
     return ecKey.toString();
   }
 
   @RequestMapping(value = "/getAccount")
   public synchronized Account getAccount() throws MnemonicException.MnemonicLengthException {
+    // init account
     Account account = new Account();
 
+    // generate random mnemonic
     SecureRandom secureRandom = new SecureRandom();
     byte[] entropy = new byte[DeterministicSeed.DEFAULT_SEED_ENTROPY_BITS / 8];
     secureRandom.engineNextBytes(entropy);
@@ -74,27 +77,43 @@ public class AddressGenerator {
 
   @RequestMapping(value = "/getMultiSignAccount")
   public synchronized MultiSignAccount getMultiSignAccount() {
-    MultiSignAccount multiSignAccount = new MultiSignAccount();
-
-    // generate random ECKey
-    ECKey ecKey1 = new ECKey();
-    ECKey ecKey2 = new ECKey();
-    ECKey ecKey3 = new ECKey();
-
     // create a 2-of-3 multi sign redeemScript (output script)
-    List<ECKey> keys = Arrays.asList(ecKey1, ecKey2, ecKey3);
+    List<ECKey> keys = generateECKeys(3);
 
-    // create scrip for generate legacy address
-    Script redeemScript = ScriptBuilder.createRedeemScript(2, keys);
-    Script script = ScriptBuilder.createP2SHOutputScript(redeemScript);
-    LegacyAddress legacyAddress = LegacyAddress.fromScriptHash(MAIN_NET, script.getPubKeyHash());
+    if (keys != null) {
+      // init multi sign account
+      MultiSignAccount multiSignAccount = new MultiSignAccount();
 
-    // update multi sign account
-    keys.forEach((i) -> multiSignAccount.addPublicKey(i.getPublicKeyAsHex()));
-    multiSignAccount.setMultiSigAddress(legacyAddress.toBase58());
-    log.info(multiSignAccount.toString());
+      // create scrip for generate legacy address
+      Script redeemScript = ScriptBuilder.createRedeemScript(THRESHOLD, keys);
+      Script script = ScriptBuilder.createP2SHOutputScript(redeemScript);
+      LegacyAddress legacyAddress = LegacyAddress.fromScriptHash(MAIN_NET, script.getPubKeyHash());
 
-    return multiSignAccount;
+      // update multi sign account
+      keys.forEach((i) -> multiSignAccount.addPublicKey(i.getPublicKeyAsHex()));
+      multiSignAccount.setMultiSigAddress(legacyAddress.toBase58());
+      log.info(multiSignAccount.toString());
+
+      return multiSignAccount;
+    }
+    else
+    {
+      return null;
+    }
+  }
+
+  public List<ECKey> generateECKeys(int size) {
+    if (size > MAX_EC_KEY_SIZE) {
+      return null;
+    }
+    else
+    {
+      List<ECKey> ecKeys = new ArrayList<>();
+      for (int i = 0; i < size; ++i) {
+        ecKeys.add(new ECKey());
+      }
+      return ecKeys;
+    }
   }
 
   public static boolean isBTCValidAddress(String address) {
@@ -102,7 +121,9 @@ public class AddressGenerator {
       LegacyAddress legacyAddress = LegacyAddress.fromBase58(MAIN_NET, address);
       if (legacyAddress != null) {
         return true;
-      } else {
+      }
+      else
+      {
         return false;
       }
     } catch (Exception e) {
